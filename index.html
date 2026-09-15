@@ -34,7 +34,7 @@
         }
         textarea {
             width: 100%;
-            height: 250px;
+            height: 300px;
             padding: 12px;
             font-family: monospace;
             font-size: 14px;
@@ -53,18 +53,14 @@
             border-radius: 6px;
             cursor: pointer;
             transition: background 0.2s;
+            width: 100%;
         }
         button:hover {
             background-color: #2980b9;
         }
-        .preview {
-            background: white;
-            border: 1px solid #ddd;
-            padding: 15px;
-            border-radius: 6px;
-            min-height: 100px;
-            font-family: monospace;
-            white-space: pre-wrap;
+        button:disabled {
+            background-color: #95a5a6;
+            cursor: not-allowed;
         }
         .section-title {
             font-weight: bold;
@@ -80,22 +76,21 @@
         <strong>사용법:</strong><br>
         - <code>|</code> 기호는 폴더를 의미합니다.<br>
         - <code>\</code> 기호는 파일을 의미합니다.<br>
-        - 들여쓰기(공백)를 이용해 폴더 안의 구조를 표현해 주세요.<br><br>
+        - <code>-</code> 기호 뒤에 내용을 적으면 해당 파일 안에 내용이 들어갑니다.<br><br>
         <em>예시:</em><br>
         | my_project<br>
-        &nbsp;&nbsp;| src<br>
-        &nbsp;&nbsp;&nbsp;&nbsp;\ index.html<br>
-        &nbsp;&nbsp;&nbsp;&nbsp;\ style.css<br>
-        &nbsp;&nbsp;\ README.md
+        &nbsp;&nbsp;\ index.html<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;- &lt;h1&gt;Hello World&lt;/h1&gt;<br>
+        &nbsp;&nbsp;\ README.md<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;- 프로젝트 설명서입니다.
     </div>
 
     <div class="container">
         <div>
             <div class="section-title">구조 텍스트 입력</div>
             <textarea id="textInput" placeholder="| my_folder
-  | sub_folder
-    \ file1.txt
-  \ file2.txt"></textarea>
+  \ hello.txt
+    - 여기에 적은 내용이 파일 안에 쏙 들어갑니다!"></textarea>
         </div>
 
         <div>
@@ -105,54 +100,77 @@
 
     <script>
         document.getElementById('generateBtn').addEventListener('click', async () => {
-            const text = document.getElementById('textInput').value;
+            const textInput = document.getElementById('textInput');
+            const generateBtn = document.getElementById('generateBtn');
+            const text = textInput.value;
+
             if (!text.trim()) {
                 alert('변환할 구조 텍스트를 입력해주세요!');
                 return;
             }
 
-            const lines = text.split('\n');
-            const zip = new JSZip();
-            
-            // 경로 스택 관리 (디렉토리 구조 파싱용)
-            // 각 요소: { name, type: 'dir'/'file', indent }
-            let dirStack = [];
-            let createdFolders = new Set();
-
-            for (let line of lines) {
-                if (!line.trim()) continue;
-
-                // 들여쓰기 공백 계산
-                const indent = line.search(/\S/);
-                const trimmed = line.trim();
-                const symbol = trimmed.charAt(0);
-                const name = trimmed.substring(1).trim();
-
-                if (symbol !== '|' && symbol !== '\\') {
-                    continue; // 기호가 잘못된 줄은 무시
-                }
-
-                // 현재 들여쓰기 수준에 맞게 스택 정리
-                while (dirStack.length > 0 && dirStack[dirStack.length - 1].indent >= indent) {
-                    dirStack.pop();
-                }
-
-                const currentPath = dirStack.map(d => d.name).join('/');
-                const fullPath = currentPath ? `${currentPath}/${name}` : name;
-
-                if (symbol === '|') {
-                    // 폴더 생성
-                    dirStack.push({ name: name, indent: indent });
-                    createdFolders.add(fullPath);
-                    zip.folder(fullPath);
-                } else if (symbol === '\\') {
-                    // 파일 생성 (빈 파일 내용으로 생성)
-                    zip.file(fullPath, ""); 
-                }
-            }
+            generateBtn.disabled = true;
+            generateBtn.textContent = '변환 중...';
 
             try {
-                // ZIP 파일 생성 및 다운로드
+                const normalizedText = text.replace(/\t/g, '    ');
+                const lines = normalizedText.split('\n');
+                const zip = new JSZip();
+                
+                let dirStack = [];
+                let currentFile = null; // 현재 내용을 담을 대상 파일 경로
+                let fileContents = {}; // 파일별 내용 저장 객체
+
+                for (let line of lines) {
+                    if (!line.trim()) continue;
+
+                    const indent = line.search(/\S/);
+                    const trimmed = line.trim();
+                    const symbol = trimmed.charAt(0);
+                    const contentName = trimmed.substring(1).trim();
+
+                    if (symbol === '-') {
+                        // 내용 행인 경우: 현재 지정된 파일이 있다면 내용 추가
+                        if (currentFile) {
+                            const lineContent = line.substring(indent).replace(/^-/, '').trim();
+                            if (fileContents[currentFile] === undefined) {
+                                fileContents[currentFile] = lineContent;
+                            } else {
+                                fileContents[currentFile] += '\n' + lineContent;
+                            }
+                        }
+                        continue;
+                    }
+
+                    // 파일이나 폴더가 새로 시작되면 내용 수집 대상 초기화
+                    currentFile = null;
+
+                    if (symbol !== '|' && symbol !== '\\') {
+                        continue; 
+                    }
+
+                    while (dirStack.length > 0 && dirStack[dirStack.length - 1].indent >= indent) {
+                        dirStack.pop();
+                    }
+
+                    const currentPath = dirStack.map(d => d.name).join('/');
+                    const fullPath = currentPath ? `${currentPath}/${contentName}` : contentName;
+
+                    if (symbol === '|') {
+                        dirStack.push({ name: contentName, indent: indent });
+                        zip.folder(fullPath);
+                    } else if (symbol === '\\') {
+                        currentFile = fullPath; // 파일 지정
+                        fileContents[currentFile] = ""; // 초기 빈 내용 설정
+                        zip.file(fullPath, ""); 
+                    }
+                }
+
+                // 수집된 파일 내용들을 ZIP에 최종 반영
+                for (let filePath in fileContents) {
+                    zip.file(filePath, fileContents[filePath]);
+                }
+
                 const content = await zip.generateAsync({ type: "blob" });
                 const url = URL.createObjectURL(content);
                 const a = document.createElement('a');
@@ -162,8 +180,12 @@
                 a.click();
                 document.body.removeChild(a);
                 URL.revokeObjectURL(url);
+
             } catch (error) {
                 alert("ZIP 생성 중 오류가 발생했습니다: " + error.message);
+            } finally {
+                generateBtn.disabled = false;
+                generateBtn.textContent = 'ZIP 파일로 변환 및 다운로드';
             }
         });
     </script>
