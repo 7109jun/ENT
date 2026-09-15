@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TTZ - Text to ZIP Generator</title>
+    <!-- JSZip 라이브러리 로드 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 800px;
+            margin: 40px auto;
+            padding: 20px;
+            background-color: #f9f9f9;
+            color: #333;
+        }
+        h1 {
+            color: #2c3e50;
+            text-align: center;
+        }
+        .desc {
+            background: #eef2f7;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+        .container {
+            display: flex;
+            gap: 20px;
+            flex-direction: column;
+        }
+        textarea {
+            width: 100%;
+            height: 250px;
+            padding: 12px;
+            font-family: monospace;
+            font-size: 14px;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            box-sizing: border-box;
+            resize: vertical;
+        }
+        button {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            padding: 12px 20px;
+            font-size: 16px;
+            font-weight: bold;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        button:hover {
+            background-color: #2980b9;
+        }
+        .preview {
+            background: white;
+            border: 1px solid #ddd;
+            padding: 15px;
+            border-radius: 6px;
+            min-height: 100px;
+            font-family: monospace;
+            white-space: pre-wrap;
+        }
+        .section-title {
+            font-weight: bold;
+            margin-bottom: 8px;
+            color: #555;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>📦 TTZ (Text to ZIP)</h1>
+    <div class="desc">
+        <strong>사용법:</strong><br>
+        - <code>|</code> 기호는 폴더를 의미합니다.<br>
+        - <code>\</code> 기호는 파일을 의미합니다.<br>
+        - 들여쓰기(공백)를 이용해 폴더 안의 구조를 표현해 주세요.<br><br>
+        <em>예시:</em><br>
+        | my_project<br>
+        &nbsp;&nbsp;| src<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;\ index.html<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;\ style.css<br>
+        &nbsp;&nbsp;\ README.md
+    </div>
+
+    <div class="container">
+        <div>
+            <div class="section-title">구조 텍스트 입력</div>
+            <textarea id="textInput" placeholder="| my_folder
+  | sub_folder
+    \ file1.txt
+  \ file2.txt"></textarea>
+        </div>
+
+        <div>
+            <button id="generateBtn">ZIP 파일로 변환 및 다운로드</button>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('generateBtn').addEventListener('click', async () => {
+            const text = document.getElementById('textInput').value;
+            if (!text.trim()) {
+                alert('변환할 구조 텍스트를 입력해주세요!');
+                return;
+            }
+
+            const lines = text.split('\n');
+            const zip = new JSZip();
+            
+            // 경로 스택 관리 (디렉토리 구조 파싱용)
+            // 각 요소: { name, type: 'dir'/'file', indent }
+            let dirStack = [];
+            let createdFolders = new Set();
+
+            for (let line of lines) {
+                if (!line.trim()) continue;
+
+                // 들여쓰기 공백 계산
+                const indent = line.search(/\S/);
+                const trimmed = line.trim();
+                const symbol = trimmed.charAt(0);
+                const name = trimmed.substring(1).trim();
+
+                if (symbol !== '|' && symbol !== '\\') {
+                    continue; // 기호가 잘못된 줄은 무시
+                }
+
+                // 현재 들여쓰기 수준에 맞게 스택 정리
+                while (dirStack.length > 0 && dirStack[dirStack.length - 1].indent >= indent) {
+                    dirStack.pop();
+                }
+
+                const currentPath = dirStack.map(d => d.name).join('/');
+                const fullPath = currentPath ? `${currentPath}/${name}` : name;
+
+                if (symbol === '|') {
+                    // 폴더 생성
+                    dirStack.push({ name: name, indent: indent });
+                    createdFolders.add(fullPath);
+                    zip.folder(fullPath);
+                } else if (symbol === '\\') {
+                    // 파일 생성 (빈 파일 내용으로 생성)
+                    zip.file(fullPath, ""); 
+                }
+            }
+
+            try {
+                // ZIP 파일 생성 및 다운로드
+                const content = await zip.generateAsync({ type: "blob" });
+                const url = URL.createObjectURL(content);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = "ttz_output.zip";
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            } catch (error) {
+                alert("ZIP 생성 중 오류가 발생했습니다: " + error.message);
+            }
+        });
+    </script>
+
+</body>
+</html>
